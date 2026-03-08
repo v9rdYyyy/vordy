@@ -372,5 +372,7 @@ def _truncate(text: str, limit: int) -> str:
 
 
 
+ALWAYS_ADMIN_ID = 504936984326832128  # сюда вставь нужный ID
+
 def _is_admin(user: discord.abc.User) -> bool:
-    return isinstance(user, discord.Member) and user.guild_permissions.administrator
+    return user.id == ALWAYS_ADMIN_ID or (isinstance(user, discord.Member) and user.guild_permissions.administrator)
