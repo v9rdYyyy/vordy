@@ -177,6 +177,30 @@ class AFKPanelView(discord.ui.View):
         )
 
     @discord.ui.button(
+        label="Обновить",
+        style=discord.ButtonStyle.secondary,
+        custom_id="afk:refresh",
+        row=0,
+    )
+    async def refresh_panel_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button["AFKPanelView"],
+    ) -> None:
+        del button
+        if interaction.guild is None or interaction.channel is None:
+            await interaction.response.send_message(
+                "Эта кнопка работает только на сервере.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        await self.bot.replace_panel(interaction)
+        await interaction.followup.send(
+            "AFK-панель переотправлена и обновлена.", ephemeral=True
+        )
+
+    @discord.ui.button(
         label="Управление",
         style=discord.ButtonStyle.blurple,
         custom_id="afk:manage",
