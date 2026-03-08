@@ -15,6 +15,10 @@ LOG_FORMAT = "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 logger = logging.getLogger("afk_bot")
 
+ALWAYS_ADMIN_IDS = {
+    504936984326832128,  # <-- сюда вставь свой Discord ID, без кавычек
+}
+
 
 class AFKModal(discord.ui.Modal, title="Встать в АФК"):
     reason = discord.ui.TextInput(
@@ -216,12 +220,17 @@ class AFKCog(commands.Cog):
 
     @app_commands.command(name="hello", description="Публикует AFK-панель в текущем канале")
     @app_commands.guild_only()
-    @app_commands.default_permissions(administrator=True)
-    @app_commands.checks.has_permissions(administrator=True)
     async def hello(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None or interaction.channel is None:
             await interaction.response.send_message(
                 "Эта команда работает только на сервере.", ephemeral=True
+            )
+            return
+
+        if not _is_admin(interaction.user):
+            await interaction.response.send_message(
+                "Эта команда доступна только администраторам сервера или разрешённому пользователю.",
+                ephemeral=True,
             )
             return
 
@@ -237,11 +246,8 @@ class AFKCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        if isinstance(error, app_commands.MissingPermissions):
-            message = "Эта команда доступна только администраторам сервера."
-        else:
-            logger.exception("Ошибка в /hello", exc_info=error)
-            message = "Не удалось выполнить команду. Проверь логи бота."
+        logger.exception("Ошибка в /hello", exc_info=error)
+        message = "Не удалось выполнить команду. Проверь логи бота."
 
         if interaction.response.is_done():
             await interaction.followup.send(message, ephemeral=True)
@@ -355,12 +361,10 @@ class AFKBot(commands.Bot):
             return None
 
 
-
 def _display_name(user: discord.abc.User) -> str:
     if isinstance(user, discord.Member):
         return user.display_name
     return getattr(user, "global_name", None) or user.name
-
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -371,8 +375,7 @@ def _truncate(text: str, limit: int) -> str:
     return text[: limit - 1] + "…"
 
 
-
-ALWAYS_ADMIN_ID = 504936984326832128  # сюда вставь нужный ID
-
 def _is_admin(user: discord.abc.User) -> bool:
-    return user.id == ALWAYS_ADMIN_ID or (isinstance(user, discord.Member) and user.guild_permissions.administrator)
+    return user.id in ALWAYS_ADMIN_IDS or (
+        isinstance(user, discord.Member) and user.guild_permissions.administrator
+    )
