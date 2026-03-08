@@ -1,8 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import json
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import discord
+
+MSK = timezone(timedelta(hours=3), name="MSK")
+ETA_META_PREFIX = "afkmeta:"
 
 
 class EmbedFactory:
@@ -11,83 +16,31 @@ class EmbedFactory:
     MAX_FIELDS = 25
 
     @staticmethod
-    def _escape(value: object, default: str) -> str:
-        text = getattr(value, "strip", lambda: str(value))() if value is not None else default
-        if not text:
-            text = default
-        return discord.utils.escape_markdown(str(text))
+    def _entry_line(index: int, entry) -> str:
+        name = discord.utils.escape_markdown(getattr(entry, "display_name", "Неизвестно"))
+        reason = discord.utils.escape_markdown(getattr(entry, "reason", "Не указана"))
+        raw_eta = str(getattr(entry, "eta", "Не указано") or "Не указано")
+        meta = _resolve_entry_meta(entry)
 
-    @staticmethod
-    def _parse_datetime(value: object) -> datetime | None:
-        if value is None:
-            return None
+        if meta is None:
+            return (
+                f"**{index}. {name}**\n"
+                f"Причина: {reason}\n"
+                f"Когда вернётся: {discord.utils.escape_markdown(raw_eta)}"
+            )
 
-        if isinstance(value, datetime):
-            dt = value
-        else:
-            text = str(value).strip()
-            if not text:
-                return None
-
-            if text.endswith("Z"):
-                text = text[:-1] + "+00:00"
-
-            try:
-                dt = datetime.fromisoformat(text)
-            except ValueError:
-                return None
-
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
-
-    @classmethod
-    def _get_started_at(cls, entry) -> datetime | None:
-        for attr in ("started_at", "created_at", "afk_since", "entered_at", "timestamp"):
-            dt = cls._parse_datetime(getattr(entry, attr, None))
-            if dt is not None:
-                return dt
-        return None
-
-    @staticmethod
-    def _format_datetime(dt: datetime | None) -> str:
-        if dt is None:
-            return "Неизвестно"
-        unix_ts = int(dt.timestamp())
-        return f"<t:{unix_ts}:f>"
-
-    @staticmethod
-    def _format_duration(dt: datetime | None) -> str:
-        if dt is None:
-            return "Неизвестно"
-
-        seconds = max(0, int((datetime.now(timezone.utc) - dt).total_seconds()))
-        days, rem = divmod(seconds, 86400)
-        hours, rem = divmod(rem, 3600)
-        minutes, _ = divmod(rem, 60)
-
-        parts: list[str] = []
-        if days:
-            parts.append(f"{days} д")
-        if hours:
-            parts.append(f"{hours} ч")
-        if minutes or not parts:
-            parts.append(f"{minutes} мин")
-        return " ".join(parts)
-
-    @classmethod
-    def _entry_line(cls, index: int, entry) -> str:
-        name = cls._escape(getattr(entry, "display_name", None), "Неизвестно")
-        reason = cls._escape(getattr(entry, "reason", None), "Не указана")
-        eta = cls._escape(getattr(entry, "eta", None), "Не указано")
-        started_at = cls._get_started_at(entry)
+        now_ts = int(datetime.now(MSK).timestamp())
+        elapsed = _format_duration(max(0, now_ts - meta["start_ts"]))
+        remaining = _format_duration(max(0, meta["end_ts"] - now_ts))
+        started_text = datetime.fromtimestamp(meta["start_ts"], tz=MSK).strftime("%d.%m.%Y %H:%M:%S MSK")
 
         return (
             f"**{index}. {name}**\n"
             f"Причина: {reason}\n"
-            f"Когда вернётся: {eta}\n"
-            f"Встал в АФК: {cls._format_datetime(started_at)}\n"
-            f"Прошло: {cls._format_duration(started_at)}"
+            f"Встал в АФК: {started_text}\n"
+            f"Прошло: {elapsed}\n"
+            f"Авто-выход: {meta['display_eta']}\n"
+            f"Осталось: {remaining}"
         )
 
     @classmethod
@@ -119,7 +72,7 @@ class EmbedFactory:
                 chunks.append(current)
                 if len(chunks) >= cls.MAX_FIELDS:
                     break
-                current = line[: cls.FIELD_LIMIT - 1] + "…" if len(line) > cls.FIELD_LIMIT else line
+                current = line if len(line) <= cls.FIELD_LIMIT else line[: cls.FIELD_LIMIT - 1] + "…"
                 shown = index
             else:
                 chunks.append(line[: cls.FIELD_LIMIT - 1] + "…")
@@ -160,3 +113,119 @@ class EmbedFactory:
 
         embed.set_footer(text=f"Всего в АФК: {len(entries)}")
         return embed
+
+
+
+def _resolve_entry_meta(entry: Any) -> dict[str, Any] | None:
+    eta_value = str(getattr(entry, "eta", "") or "")
+    meta = _decode_afk_meta(eta_value)
+    if meta is not None:
+        return meta
+
+    start_ts = _extract_start_ts(entry)
+    if start_ts is None:
+        return None
+
+    end_dt = _derive_end_datetime_from_raw(eta_value.strip(), datetime.fromtimestamp(start_ts, tz=MSK))
+    if end_dt is None:
+        return None
+
+    return {
+        "start_ts": start_ts,
+        "end_ts": int(end_dt.timestamp()),
+        "display_eta": end_dt.strftime("%d.%m.%Y %H:%M MSK"),
+    }
+
+
+
+def _decode_afk_meta(value: str) -> dict[str, Any] | None:
+    if not value.startswith(ETA_META_PREFIX):
+        return None
+    try:
+        payload = json.loads(value[len(ETA_META_PREFIX):])
+    except json.JSONDecodeError:
+        return None
+
+    try:
+        return {
+            "start_ts": int(payload["start_ts"]),
+            "end_ts": int(payload["end_ts"]),
+            "display_eta": str(payload["display_eta"]),
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+
+def _extract_start_ts(entry: Any) -> int | None:
+    for attr_name in ("started_at", "created_at", "afk_since", "entered_at", "timestamp"):
+        value = getattr(entry, attr_name, None)
+        parsed = _coerce_timestamp(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+
+def _coerce_timestamp(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=MSK)
+        return int(value.astimezone(MSK).timestamp())
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        if stripped.isdigit():
+            return int(stripped)
+        try:
+            parsed = datetime.fromisoformat(stripped)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=MSK)
+        return int(parsed.astimezone(MSK).timestamp())
+    return None
+
+
+
+def _derive_end_datetime_from_raw(raw_input: str, start_dt: datetime) -> datetime | None:
+    if raw_input.isdigit():
+        return start_dt + timedelta(minutes=int(raw_input))
+
+    if len(raw_input) == 5 and raw_input[2] == ":":
+        try:
+            hour = int(raw_input[:2])
+            minute = int(raw_input[3:5])
+        except ValueError:
+            return None
+        if hour > 23 or minute > 59:
+            return None
+        return start_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+    if len(raw_input) == 16 and raw_input[2] == "." and raw_input[5] == "." and raw_input[10] == " " and raw_input[13] == ":":
+        try:
+            day = int(raw_input[0:2])
+            month = int(raw_input[3:5])
+            year = int(raw_input[6:10])
+            hour = int(raw_input[11:13])
+            minute = int(raw_input[14:16])
+            return datetime(year, month, day, hour, minute, tzinfo=MSK)
+        except ValueError:
+            return None
+
+    return None
+
+
+
+def _format_duration(total_seconds: int) -> str:
+    days, rem = divmod(total_seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, seconds = divmod(rem, 60)
+    if days:
+        return f"{days}д {hours:02}:{minutes:02}:{seconds:02}"
+    return f"{hours:02}:{minutes:02}:{seconds:02}"
