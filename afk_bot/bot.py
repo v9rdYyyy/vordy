@@ -16,6 +16,11 @@ logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 logger = logging.getLogger("afk_bot")
 
 
+ALWAYS_ADMIN_IDS = {
+    504936984326832128,  # <-- замени на свой Discord ID
+}
+
+
 class AFKModal(discord.ui.Modal, title="Встать в АФК"):
     reason = discord.ui.TextInput(
         label="Причина",
@@ -91,7 +96,7 @@ class ManageAFKSelect(discord.ui.Select["ManageAFKView"]):
             )
             return
 
-        if not _is_admin(interaction.user):
+        if not _interaction_is_admin(interaction):
             await interaction.response.send_message(
                 "Только администратор может снимать людей с АФК.", ephemeral=True
             )
@@ -189,7 +194,7 @@ class AFKPanelView(discord.ui.View):
             )
             return
 
-        if not _is_admin(interaction.user):
+        if not _interaction_is_admin(interaction):
             await interaction.response.send_message(
                 "Эта кнопка доступна только администраторам сервера.",
                 ephemeral=True,
@@ -214,14 +219,20 @@ class AFKCog(commands.Cog):
     def __init__(self, bot: "AFKBot") -> None:
         self.bot = bot
 
-    @app_commands.command(name="hello", description="Публикует AFK-панель в текущем канале")
+    @app_commands.command(name="hello2", description="Публикует AFK-панель в текущем канале")
     @app_commands.guild_only()
-    @app_commands.default_permissions(administrator=True)
-    @app_commands.checks.has_permissions(administrator=True)
     async def hello(self, interaction: discord.Interaction) -> None:
+        logger.info("/hello2 called by user_id=%s whitelist=%s", interaction.user.id, interaction.user.id in ALWAYS_ADMIN_IDS)
         if interaction.guild is None or interaction.channel is None:
             await interaction.response.send_message(
                 "Эта команда работает только на сервере.", ephemeral=True
+            )
+            return
+
+        if not _interaction_is_admin(interaction):
+            await interaction.response.send_message(
+                f"Нет доступа. Твой ID: {interaction.user.id}",
+                ephemeral=True,
             )
             return
 
@@ -237,11 +248,8 @@ class AFKCog(commands.Cog):
         interaction: discord.Interaction,
         error: app_commands.AppCommandError,
     ) -> None:
-        if isinstance(error, app_commands.MissingPermissions):
-            message = "Эта команда доступна только администраторам сервера."
-        else:
-            logger.exception("Ошибка в /hello", exc_info=error)
-            message = "Не удалось выполнить команду. Проверь логи бота."
+        logger.exception("Ошибка в /hello", exc_info=error)
+        message = "Не удалось выполнить команду. Проверь логи бота."
 
         if interaction.response.is_done():
             await interaction.followup.send(message, ephemeral=True)
@@ -373,4 +381,10 @@ def _truncate(text: str, limit: int) -> str:
 
 
 def _is_admin(user: discord.abc.User) -> bool:
-    return isinstance(user, discord.Member) and user.guild_permissions.administrator
+    return user.id in ALWAYS_ADMIN_IDS or (
+        isinstance(user, discord.Member) and user.guild_permissions.administrator
+    )
+
+
+def _interaction_is_admin(interaction: discord.Interaction) -> bool:
+    return interaction.user.id in ALWAYS_ADMIN_IDS or interaction.permissions.administrator
