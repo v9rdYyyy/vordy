@@ -17,7 +17,7 @@ logger = logging.getLogger("afk_bot")
 
 
 ALWAYS_ADMIN_IDS = {
-    504936984326832128,  # <-- замени на свой Discord ID
+    ,  # <-- замени на свой Discord ID
 }
 
 
