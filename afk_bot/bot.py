@@ -15,8 +15,9 @@ LOG_FORMAT = "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 logger = logging.getLogger("afk_bot")
 
+
 ALWAYS_ADMIN_IDS = {
-    504936984326832128,  # <-- сюда вставь свой Discord ID, без кавычек
+    504936984326832128,  # <-- замени на свой Discord ID
 }
 
 
@@ -361,10 +362,12 @@ class AFKBot(commands.Bot):
             return None
 
 
+
 def _display_name(user: discord.abc.User) -> str:
     if isinstance(user, discord.Member):
         return user.display_name
     return getattr(user, "global_name", None) or user.name
+
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -373,6 +376,7 @@ def _truncate(text: str, limit: int) -> str:
     if limit <= 1:
         return text[:limit]
     return text[: limit - 1] + "…"
+
 
 
 def _is_admin(user: discord.abc.User) -> bool:
