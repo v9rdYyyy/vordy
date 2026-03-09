@@ -17,17 +17,18 @@ class EmbedFactory:
 
     @staticmethod
     def _entry_line(index: int, entry) -> str:
+        user_id = getattr(entry, "user_id", None)
         name = discord.utils.escape_markdown(getattr(entry, "display_name", "Неизвестно"))
         reason = discord.utils.escape_markdown(getattr(entry, "reason", "Не указана"))
-        raw_eta = str(getattr(entry, "eta", "Не указано") or "Не указано")
-        meta = _resolve_entry_meta(entry)
+        eta = discord.utils.escape_markdown(getattr(entry, "eta", "Не указано"))
 
-        if meta is None:
-            return (
-                f"**{index}. {name}**\n"
-                f"Причина: {reason}\n"
-                f"Когда вернётся: {discord.utils.escape_markdown(raw_eta)}"
-            )
+        user_ref = f"<@{user_id}>" if user_id else name
+
+        return (
+            f"**{index}.** {user_ref}\n"
+            f"Причина: {reason}\n"
+            f"Когда вернётся: {eta}"
+        )
 
         now_ts = int(datetime.now(MSK).timestamp())
         elapsed = _format_duration(max(0, now_ts - meta["start_ts"]))
@@ -59,8 +60,8 @@ class EmbedFactory:
         current = ""
         shown = 0
 
-        for index, entry in enumerate(entries, start=1):
-            line = cls._entry_line(index, entry)
+        for index,  in enumerate(entries, start=1):
+            line = cls.__line(index, )
             candidate = line if not current else f"{current}\n\n{line}"
 
             if len(candidate) <= cls.FIELD_LIMIT:
@@ -116,13 +117,13 @@ class EmbedFactory:
 
 
 
-def _resolve_entry_meta(entry: Any) -> dict[str, Any] | None:
-    eta_value = str(getattr(entry, "eta", "") or "")
+def _resolve__meta(: Any) -> dict[str, Any] | None:
+    eta_value = str(getattr(, "eta", "") or "")
     meta = _decode_afk_meta(eta_value)
     if meta is not None:
         return meta
 
-    start_ts = _extract_start_ts(entry)
+    start_ts = _extract_start_ts()
     if start_ts is None:
         return None
 
@@ -157,9 +158,9 @@ def _decode_afk_meta(value: str) -> dict[str, Any] | None:
 
 
 
-def _extract_start_ts(entry: Any) -> int | None:
+def _extract_start_ts(: Any) -> int | None:
     for attr_name in ("started_at", "created_at", "afk_since", "entered_at", "timestamp"):
-        value = getattr(entry, attr_name, None)
+        value = getattr(, attr_name, None)
         parsed = _coerce_timestamp(value)
         if parsed is not None:
             return parsed
